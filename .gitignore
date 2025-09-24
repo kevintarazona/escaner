@@ -1,0 +1,28 @@
+.venv/
+venv/
+ENV/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.code-workspace
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Reports y archivos generados
+reports/
+*.pdf
+
+# Logs
+*.log
+
+# Variables de entorno
+.env
