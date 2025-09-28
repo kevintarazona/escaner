@@ -1,12 +1,14 @@
-  :root {
-            --primary: #3498db;
-            --secondary: #2c3e50;
-            --success: #2ecc71;
-            --warning: #f39c12;
-            --danger: #e74c3c;
-            --dark: #1a1a1a;
-            --light: #f8f9fa;
-        }
+    :root {
+        --primary: #1e3a5c;      /* Azul oscuro */
+        --secondary: #3a506b;    /* Azul grisáceo */
+        --success: #4a90e2;      /* Azul claro para éxito */
+        --warning: #b0b7c3;      /* Gris claro para advertencia */
+        --danger: #d7263d;       /* Rojo sobrio para errores */
+        --dark: #222831;         /* Gris muy oscuro */
+        --light: #7ab9fdbd;        /* Blanco azulado */
+        --text-main: #222831;    /* Texto principal */
+        --text-light: #ffffff;   /* Texto claro */
+    }
         
         * {
             margin: 0;
@@ -16,18 +18,10 @@
         }
         
         body {
-            background: linear-gradient(135deg, #1a2a6c, #b21f1f, #fdbb2d);
-            background-size: 400% 400%;
-            animation: gradient 15s ease infinite;
-            color: #333;
+            background: var(--light);
+            color: var(--text-main);
             min-height: 100vh;
             padding: 20px;
-        }
-        
-        @keyframes gradient {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
         }
         
         .container {
@@ -38,8 +32,8 @@
         header {
             text-align: center;
             margin-bottom: 30px;
-            color: white;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            color: var(--primary);
+            text-shadow: none;
         }
         
         header h1 {
@@ -53,16 +47,16 @@
         }
         
         .card {
-            background: white;
+            background: #fff;
             border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+            box-shadow: 0 4px 16px rgba(30, 58, 92, 0.08);
             overflow: hidden;
             margin-bottom: 30px;
         }
         
         .card-header {
-            background: var(--secondary);
-            color: white;
+            background: var(--primary);
+            color: var(--text-light);
             padding: 20px;
             display: flex;
             align-items: center;
@@ -96,8 +90,8 @@
             padding: 15px 25px;
             border: none;
             border-radius: 0 8px 8px 0;
-            background: var(--primary);
-            color: white;
+            background: var(--secondary);
+            color: var(--text-light);
             font-weight: bold;
             cursor: pointer;
             transition: background 0.3s;
@@ -105,25 +99,27 @@
             align-items: center;
             gap: 8px;
         }
-        
+
         .btn:hover {
-            background: #2980b9;
+            background: var(--primary);
         }
         
         .btn-scan {
             background: var(--success);
         }
-        
+
         .btn-scan:hover {
-            background: #27ae60;
+            background: var(--primary);
         }
         
         .btn-download {
             background: var(--warning);
+            color: var(--dark);
         }
-        
+
         .btn-download:hover {
-            background: #e67e22;
+            background: var(--secondary);
+            color: var(--text-light);
         }
         
         .scan-progress {
@@ -140,7 +136,7 @@
         
         .progress {
             height: 100%;
-            background: linear-gradient(90deg, var(--primary), var(--success));
+            background: var(--primary);
             width: 0%;
             transition: width 0.5s;
         }
@@ -169,7 +165,7 @@
             border-radius: 10px;
             padding: 20px;
             text-align: center;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+            box-shadow: 0 2px 8px rgba(30, 58, 92, 0.04);
         }
         
         .result-box h3 {
@@ -213,17 +209,17 @@
             color: var(--danger);
             font-weight: bold;
         }
-        
+
         .risk-medium {
-            color: var(--warning);
-            font-weight: bold;
-        }
-        
-        .risk-low {
             color: var(--primary);
             font-weight: bold;
         }
-        
+
+        .risk-low {
+            color: var(--secondary);
+            font-weight: bold;
+        }
+
         .risk-info {
             color: var(--success);
             font-weight: bold;
@@ -267,13 +263,6 @@
             font-size: 80px;
             color: var(--primary);
             margin-bottom: 20px;
-            animation: pulse 1.5s infinite;
-        }
-        
-        @keyframes pulse {
-            0% { transform: scale(1); opacity: 1; }
-            50% { transform: scale(1.1); opacity: 0.8; }
-            100% { transform: scale(1); opacity: 1; }
         }
         
         .status-message {
@@ -286,8 +275,8 @@
         footer {
             text-align: center;
             margin-top: 50px;
-            color: white;
-            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+            color: var(--secondary);
+            text-shadow: none;
         }
         
         /* Nuevos estilos para múltiples páginas */
@@ -345,7 +334,7 @@
         .scan-options {
             margin: 20px 0;
             padding: 15px;
-            background: var(--light);
+            background: var(--text-light);
             border-radius: 8px;
         }
         
