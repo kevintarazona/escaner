@@ -1,7 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
-import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from scanner import SecurityScanner
 
 class WebCrawler:
@@ -15,48 +15,54 @@ class WebCrawler:
     
     def crawl(self):
         self.to_visit.add(self.base_url)
-        
-        while self.to_visit and len(self.visited) < self.max_pages:
-            url = self.to_visit.pop()
-            
-            if url in self.visited:
-                continue
-                
+
+        def fetch_and_extract(url):
             try:
-                print(f"Escaneando: {url}")
                 response = self.session.get(url, timeout=10)
-                self.visited.add(url)
-                
-                # Scan page for vulnerabilities
-                scanner = SecurityScanner(url, session=self.session)
-                page_results = scanner.scan()
-                page_results['url'] = url
-                self.results.append(page_results)
-                
-                # Parse page and extract links (si es HTML)
+                links = []
                 if 'text/html' in response.headers.get('Content-Type', ''):
                     soup = BeautifulSoup(response.text, 'html.parser')
-                    
-                    # Find all links on page
                     for link in soup.find_all('a', href=True):
                         href = link['href']
                         full_url = urljoin(url, href)
-                        
-                        # Only follow links within the same domain
                         if urlparse(full_url).netloc == urlparse(self.base_url).netloc:
-                            if full_url not in self.visited and full_url not in self.to_visit:
-                                self.to_visit.add(full_url)
-                
-            except Exception as e:
-                print(f"Error al escanear {url}: {e}")
-                # Registrar el error en los resultados
-                self.results.append({
-                    'url': url,
-                    'error': str(e),
-                    'vulnerabilities': []
-                })
-                continue
-        
+                            links.append(full_url)
+                return url, response, links, None
+            except requests.RequestException as e:
+                return url, None, [], str(e)
+
+        while self.to_visit and len(self.visited) < self.max_pages:
+            batch = []
+            # construir un batch de URLs nuevas
+            while self.to_visit and len(batch) + len(self.visited) < self.max_pages:
+                u = self.to_visit.pop()
+                if u not in self.visited:
+                    batch.append(u)
+
+            futures = []
+            with ThreadPoolExecutor(max_workers=6) as ex:
+                for u in batch:
+                    futures.append(ex.submit(fetch_and_extract, u))
+
+                # escanear cada página conforme llega
+                for fut in as_completed(futures):
+                    url, _response, links, err = fut.result()
+                    self.visited.add(url)
+                    if err:
+                        print(f"Error al escanear {url}: {err}")
+                        self.results.append({'url': url, 'error': err, 'vulnerabilities': []})
+                        continue
+
+                    # lanzar scanner (en el mismo pool para reutilizar sesión)
+                    scanner = SecurityScanner(url, session=self.session)
+                    page_results = scanner.scan()
+                    page_results['url'] = url
+                    self.results.append(page_results)
+
+                    for full_url in links:
+                        if full_url not in self.visited and full_url not in self.to_visit:
+                            self.to_visit.add(full_url)
+
         return self.results
 
 
@@ -64,19 +70,20 @@ class WebCrawler:
 def scan_multiple_urls(urls, session=None):
     results = []
     session = session or requests.Session()
-    
-    for url in urls:
+
+    def do_scan(u):
         try:
-            scanner = SecurityScanner(url, session=session)
-            page_results = scanner.scan()
-            page_results['url'] = url
-            results.append(page_results)
-        except Exception as e:
-            print(f"Error al escanear {url}: {e}")
-            results.append({
-                'url': url,
-                'error': str(e),
-                'vulnerabilities': []
-            })
-    
+            scanner = SecurityScanner(u, session=session)
+            r = scanner.scan()
+            r['url'] = u
+            return r
+        except requests.RequestException as e:
+            print(f"Error al escanear {u}: {e}")
+            return {'url': u, 'error': str(e), 'vulnerabilities': []}
+
+    with ThreadPoolExecutor(max_workers=min(8, max(2, len(urls)))) as ex:
+        futures = [ex.submit(do_scan, u) for u in urls]
+        for fut in as_completed(futures):
+            results.append(fut.result())
+
     return results
