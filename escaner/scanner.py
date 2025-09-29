@@ -110,11 +110,20 @@ class SecurityScanner:
     # ---------------- XSS -----------------
     def test_xss(self):
         self._ensure_base()
-        # Payloads representativos por contexto
+        # Payloads representativos por contexto con descripción
         payloads = [
-            '<script>alert(1)</script>',
-            '" onmouseover="alert(1)"',
-            "'>\"/><img src=x onerror=alert(1)>",
+            { 'p': '<script>alert(1)</script>', 'd': 'Script tag clásico (reflejado en HTML)'},
+            { 'p': '" onmouseover="alert(1)"', 'd': 'Inyección en atributo con event handler'},
+            { 'p': "'>\"/><img src=x onerror=alert(1)>", 'd': 'Rompimiento de contexto + onerror'},
+            { 'p': '<img src=x onerror=alert(1)>', 'd': 'XSS a través de onerror en imagen'},
+            { 'p': '"><svg/onload=alert(1)>', 'd': 'SVG onload ejecutable'},
+            { 'p': '<iframe src=javascript:alert(1)>', 'd': 'javascript: URI dentro de iframe'},
+            { 'p': '<body onload=alert(1)>', 'd': 'Ejecución al cargar el body'},
+            { 'p': '<details open ontoggle=alert(1)>', 'd': 'Evento HTML5 ontoggle'},
+            { 'p': '"><script>alert(1)</script>', 'd': 'Cierre de atributo + script tag'},
+            { 'p': '<svg><a xlink:href=javascript:alert(1)>x</a></svg>', 'd': 'SVG xlink javascript:'},
+            { 'p': '<input autofocus onfocus=alert(1)>', 'd': 'Evento onfocus en input'},
+            { 'p': '<video src=x onerror=alert(1)>', 'd': 'onerror en elemento media'},
         ]
 
         xss_found_for = set()
@@ -124,7 +133,9 @@ class SecurityScanner:
             if (name, action_url) in xss_found_for:
                 continue
 
-            for p in payloads:
+            for item in payloads:
+                p = item['p']
+                p_desc = item['d']
                 try:
                     if method == 'post':
                         resp = self.session.post(action_url, data={name: p}, timeout=6)
@@ -159,11 +170,15 @@ class SecurityScanner:
                     self._add_vuln({
                         'type': 'Cross-Site Scripting (XSS)',
                         'severity': severity,
-                        'description': f'Input reflejado sin sanitización en parámetro "{name}"',
-                        'details': f'{evidence} at {action_url}',
+                        'description': f'Entrada del usuario reflejada sin la sanitización/escape adecuados en el parámetro "{name}", lo que permite la ejecución de JavaScript.',
+                        'details': f'Contexto detectado: {evidence}',
                         'payload': p,
+                        'payload_description': p_desc,
                         'parameter': name,
                         'method': method.upper(),
+                        'endpoint': action_url,
+                        'evidence': evidence,
+                        'recommendation': 'Implemente escape de salida según el contexto (HTML, atributo, JS), valide/encode inputs y habilite una CSP restrictiva.'
                     })
                     xss_found_for.add((name, action_url))
                     # Evitar demasiadas peticiones por parámetro
@@ -173,17 +188,31 @@ class SecurityScanner:
     def test_sql_injection(self):
         params = self._discover_params() or [('id', 'get', self.url)]
 
-        # Payloads de error basado
-        error_payloads = ["'", '"', "\\"]
-        # Boolean-based (comparativa True/False)
-        bool_payloads = [
-            ("' AND 1=1-- ", "' AND 1=2-- "),
-            ('" AND 1=1-- ', '" AND 1=2-- '),
+        # Payloads de error basado (ampliados)
+        error_payloads = [
+            { 'p': "'", 'd': 'Comilla simple para forzar error de sintaxis'},
+            { 'p': '"', 'd': 'Comilla doble para forzar error de sintaxis'},
+            { 'p': "'-- ", 'd': 'Comilla + comentario estilo SQL'},
+            { 'p': "'#", 'd': 'Comilla + comentario (#) MySQL'},
+            { 'p': "'/*", 'd': 'Comilla + inicio de comentario'},
+            { 'p': '"-- ', 'd': 'Comilla doble + comentario'},
+            { 'p': '")', 'd': 'Cierre de paréntesis desbalanceado'},
+            { 'p': "))", 'd': 'Paréntesis desbalanceados'},
         ]
-        # Time-based (pequeña espera para no ralentizar)
+        # Boolean-based (comparativa True/False) ampliados
+        bool_payloads = [
+            ("' AND 1=1-- ", "' AND 1=2-- ", 'AND tautología vs contradicción (comilla simple)'),
+            ('" AND 1=1-- ', '" AND 1=2-- ', 'AND tautología vs contradicción (comilla doble)'),
+            ("' OR '1'='1'-- ", "' OR '1'='2'-- ", 'OR tautología vs contradicción (quoted)'),
+            ('" OR "1"="1"-- ', '" OR "1"="2"-- ', 'OR tautología vs contradicción (quoted, dbl)'),
+            ("') OR ('1'='1')-- ", "') OR ('1'='2')-- ", 'Cierre de paréntesis + OR'),
+        ]
+        # Time-based (ampliado, tiempos cortos)
         time_payloads = [
-            ("' OR SLEEP(2)-- ", 2.0),
-            ("'; SELECT pg_sleep(2)-- ", 2.0),
+            ("' OR SLEEP(2)-- ", 2.0, 'MySQL SLEEP(2)'),
+            ("'; SELECT pg_sleep(2)-- ", 2.0, 'PostgreSQL pg_sleep(2)'),
+            ("'; WAITFOR DELAY '0:0:2'-- ", 2.0, 'MSSQL WAITFOR DELAY 2s'),
+            ("' AND SLEEP(2)-- ", 2.0, 'MySQL AND SLEEP(2)')
         ]
 
         for name, method, action_url in params:
@@ -199,22 +228,29 @@ class SecurityScanner:
 
             # 1) Error-based
             sqli_detected = False
-            for p in error_payloads:
+            for item in error_payloads:
+                p = item['p']
+                p_desc = item['d']
                 try:
                     if method == 'post':
                         r = self.session.post(action_url, data={name: p}, timeout=6)
                     else:
                         r = self.session.get(action_url, params={name: p}, timeout=6)
                     low = r.text.lower()
-                    if any(sig in low for sig in DB_ERROR_SIGNATURES):
+                    matched = [sig for sig in DB_ERROR_SIGNATURES if sig in low]
+                    if matched:
                         self._add_vuln({
                             'type': 'SQL Injection (Error-based)',
                             'severity': 'High',
-                            'description': f'Errores SQL detectados al inyectar en "{name}"',
-                            'details': f'Endpoint: {action_url}',
+                            'description': f'Posible inyección SQL: el parámetro "{name}" provoca errores del motor de base de datos.',
+                            'details': f'Firma(s) detectada(s): {", ".join(matched[:3])}',
                             'payload': p,
+                            'payload_description': p_desc,
                             'parameter': name,
                             'method': method.upper(),
+                            'endpoint': action_url,
+                            'evidence': 'Mensaje de error SQL devuelto por el servidor',
+                            'recommendation': 'Use consultas parametrizadas/preparadas, valide y tipifique entradas, y desactive mensajes de error detallados en producción.'
                         })
                         sqli_detected = True
                         break
@@ -225,7 +261,7 @@ class SecurityScanner:
                 continue
 
             # 2) Boolean-based
-            for p_true, p_false in bool_payloads:
+            for p_true, p_false, pair_desc in bool_payloads:
                 try:
                     if method == 'post':
                         r1 = self.session.post(action_url, data={name: p_true}, timeout=6)
@@ -234,15 +270,20 @@ class SecurityScanner:
                         r1 = self.session.get(action_url, params={name: p_true}, timeout=6)
                         r2 = self.session.get(action_url, params={name: p_false}, timeout=6)
                     # Heurística de diferencia
-                    if abs(len(r1.text) - len(r2.text)) > max(50, 0.15 * max(len(r1.text), 1)):
+                    diff = abs(len(r1.text) - len(r2.text))
+                    if diff > max(50, 0.15 * max(len(r1.text), 1)):
                         self._add_vuln({
                             'type': 'SQL Injection (Boolean-based)',
                             'severity': 'High',
-                            'description': f'Diferencias significativas entre expresiones TRUE/FALSE en "{name}"',
-                            'details': f'Endpoint: {action_url}',
+                            'description': f'Posible inyección SQL: diferencias significativas al evaluar expresiones TRUE/FALSE inyectadas en "{name}".',
+                            'details': f'Diferencia de tamaño: {diff} bytes',
                             'payload': f'T:{p_true} | F:{p_false}',
+                            'payload_description': pair_desc,
                             'parameter': name,
                             'method': method.upper(),
+                            'endpoint': action_url,
+                            'evidence': 'Variación notable en la longitud/estructura de la respuesta entre TRUE y FALSE',
+                            'recommendation': 'Aplicar consultas parametrizadas y normalizar/validar entradas; evitar concatenación dinámica en SQL.'
                         })
                         sqli_detected = True
                         break
@@ -253,7 +294,7 @@ class SecurityScanner:
                 continue
 
             # 3) Time-based (una sola prueba rápida)
-            for p, wait_s in time_payloads:
+            for p, wait_s, p_desc in time_payloads:
                 try:
                     t0 = time.time()
                     if method == 'post':
@@ -265,11 +306,15 @@ class SecurityScanner:
                         self._add_vuln({
                             'type': 'SQL Injection (Time-based)',
                             'severity': 'High',
-                            'description': f'Respuestas con retardo inducido al inyectar en "{name}"',
-                            'details': f'Endpoint: {action_url} (+{round(dt,2)}s)',
+                            'description': f'Posible inyección SQL: respuestas con retardo inducido por funciones de espera al inyectar en "{name}".',
+                            'details': f'Retardo observado: +{round(dt,2)}s (baseline: ~{round(base_time,2)}s, esperado: ~{wait_s}s)',
                             'payload': p,
+                            'payload_description': p_desc,
                             'parameter': name,
                             'method': method.upper(),
+                            'endpoint': action_url,
+                            'evidence': 'Diferencia de tiempo consistente ante payloads con SLEEP/WAIT',
+                            'recommendation': 'Use consultas parametrizadas; limite funciones bloqueantes y haga validación/normalización estricta.'
                         })
                         break
                 except requests.RequestException:
@@ -298,8 +343,10 @@ class SecurityScanner:
                     self._add_vuln({
                         'type': 'Security Header Missing',
                         'severity': sev,
-                        'description': f'Falta cabecera de seguridad {header}',
-                        'details': 'La cabecera ayuda a mitigar ataques comunes (clickjacking, MIME sniffing, etc.)'
+                        'description': f'Falta cabecera de seguridad {header}.',
+                        'details': 'La cabecera ayuda a mitigar ataques comunes (p. ej., clickjacking, sniffing o MITM).',
+                        'endpoint': self.url,
+                        'recommendation': 'Configure el servidor para incluir las cabeceras de seguridad recomendadas; revise valores adecuados para su app.'
                     })
         except requests.RequestException as e:
             print(f"Header test error: {e}")
@@ -314,8 +361,10 @@ class SecurityScanner:
                     self._add_vuln({
                         'type': 'CSRF Protection Missing',
                         'severity': 'Medium',
-                        'description': 'Formulario sin token CSRF detectado',
-                        'details': 'Un formulario sin protección CSRF puede permitir acciones no autorizadas.'
+                        'description': 'Formulario sin token CSRF detectado.',
+                        'details': 'Sin token anti-CSRF, un atacante puede forzar acciones autenticadas del usuario.',
+                        'endpoint': self.url,
+                        'recommendation': 'Implemente tokens CSRF únicos por sesión/solicitud y verifique en el servidor; use SameSite en cookies.'
                     })
                     break
         except requests.RequestException as e:
@@ -346,8 +395,10 @@ class SecurityScanner:
                         self._add_vuln({
                             'type': 'Sensitive File Exposure',
                             'severity': 'Low' if 'robots.txt' in file_path else 'Medium',
-                            'description': f'Archivo sensible accesible: {file_path}',
-                            'details': f'El recurso {file_path} es accesible y podría exponer información.'
+                            'description': f'Archivo sensible accesible: {file_path}.',
+                            'details': f'El recurso {file_path} es accesible y podría exponer información de entorno o configuración.',
+                            'endpoint': full,
+                            'recommendation': 'Restrinja acceso por servidor (403), mueva secretos fuera del docroot y revise configuración.'
                         })
             except requests.RequestException:
                 continue

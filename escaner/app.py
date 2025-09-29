@@ -80,9 +80,13 @@ def generate_report():
         return jsonify({'error': 'scan_results or results field is required'}), 400
     try:
         pdf_path = generate_pdf_report(scan_results)
+        # Enviar con nombre amigable
         return send_file(pdf_path, as_attachment=True, download_name=f"security_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf")
     except (OSError, ValueError, RuntimeError) as e:
         return jsonify({'error': str(e)}), 500
+    except Exception as e:
+        # Captura de seguridad para cualquier error no previsto
+        return jsonify({'error': f'Unhandled error: {str(e)}'}), 500
 
 if __name__ == '__main__':
     # Crear directorio para reportes si no existe

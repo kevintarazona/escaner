@@ -177,7 +177,7 @@
                     <button class="btn" id="back-to-results">
                         <i class="fas fa-arrow-left"></i> Volver a Resultados
                     </button>
-                    <button class="btn btn-download">
+                    <button class="btn btn-download" id="download-pdf-report">
                         <i class="fas fa-download"></i> Descargar PDF
                     </button>
                 </div>
@@ -207,13 +207,26 @@
             const vulnDetails = document.getElementById('vuln-details');
             const pageList = document.getElementById('page-list');
             const downloadBtn = document.getElementById('download-pdf');
+            const downloadBtnReport = document.getElementById('download-pdf-report');
             let chartSeverity = null;
             let chartTypes = null;
+            let statusEls = []; // referencias a elementos de estado por URL
 
             let lastResults = null; // Guardar resultados reales para reporte
             let tableRows = [];     // Datos de vulnerabilidades para la tabla
             let pageSize = 10;      // Tamaño de página por defecto
             let currentPage = 1;    // Página actual de la tabla
+
+            // Escapar HTML para mostrar payloads de forma segura y completa
+            const escapeHtml = (s) => {
+                if (s === null || s === undefined) return '';
+                return String(s)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/\"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            };
 
             // Añadir nuevo campo URL
             addUrlBtn.addEventListener('click', () => {
@@ -315,7 +328,9 @@
                             type: v.type||'N/A',
                             severity: (v.severity||'').toLowerCase(),
                             payload: v.payload||'',
-                            description: v.description||''
+                            description: v.description||'',
+                            details: v.details||'',
+                            payload_description: v.payload_description||''
                         });
                     });
 
@@ -336,10 +351,16 @@
                             const d=document.createElement('div');
                             d.className='vuln-detail';
                             const sev=(v.severity||'').toLowerCase();
-                            d.innerHTML=`<h4>${v.type||'Vulnerabilidad'} - ${sevBadge(v.severity)}</h4>
-                                <p><strong>Descripción:</strong> ${v.description||''}</p>
-                                ${v.details?`<p><strong>Detalles:</strong> ${v.details}</p>`:''}
-                                ${v.payload?`<p><strong>Payload:</strong> ${v.payload}</p>`:''}`;
+                            const vType = escapeHtml(v.type||'Vulnerabilidad');
+                            const vDesc = escapeHtml(v.description||'');
+                            const vDet  = escapeHtml(v.details||'');
+                            const vPay  = escapeHtml(v.payload||'');
+                            const vPayD = escapeHtml(v.payload_description||'');
+                            d.innerHTML=`<h4>${vType} - ${sevBadge(v.severity)}</h4>
+                                ${v.description?`<p><strong>Descripción:</strong> ${vDesc}</p>`:''}
+                                ${v.details?`<p><strong>Detalles:</strong> ${vDet}</p>`:''}
+                                ${v.payload?`<p><strong>Payload:</strong> <code class="code-inline">${vPay}</code></p>`:''}
+                                ${v.payload_description?`<p><strong>Descripción del payload:</strong> ${vPayD}</p>`:''}`;
                             detailsEl.appendChild(d);
                         });
                         vulnDetails.appendChild(detailsEl);
@@ -359,11 +380,17 @@
                 for(let i=start; i<end; i++){
                     const r = tableRows[i];
                     const tr = document.createElement('tr');
-                    tr.innerHTML = `<td>${r.pageUrl}</td>
-                                    <td>${r.type}</td>
+                    const p = escapeHtml(r.payload||'');
+                    const type = escapeHtml(r.type||'');
+                    const desc = escapeHtml(r.description||'');
+                    const det  = escapeHtml(r.details||'');
+                    const pdesc= escapeHtml(r.payload_description||'');
+                    const detailsCell = [desc, det, pdesc].filter(Boolean).map(x=>`<div>${x}</div>`).join('');
+                    tr.innerHTML = `<td>${escapeHtml(r.pageUrl)}</td>
+                                    <td>${type}</td>
                                     <td><span class="risk-${r.severity}">${r.severity.toUpperCase()}</span></td>
-                                    <td>${r.payload?r.payload:''}</td>
-                                    <td>${r.description}</td>`;
+                                    <td class="payload-cell">${p?`<code class="code-inline">${p}</code>`:''}</td>
+                                    <td>${detailsCell}</td>`;
                     vulnTableBody.appendChild(tr);
                 }
             }
@@ -418,12 +445,15 @@
                 pageList.innerHTML='';
                 progressStatus.textContent='Preparando escaneo...';
                 updateProgress(5);
+                statusEls = [];
 
                 urls.forEach(u=>{
                     const div=document.createElement('div');
                     div.className='page-item';
-                    div.innerHTML=`<div>${u}</div><div class="page-status"><span class="status-icon status-scanning"><i class="fas fa-spinner fa-spin"></i></span><span>Escanenado</span></div>`;
+                    div.innerHTML=`<div>${u}</div><div class="page-status"><span class="status-icon status-scanning"><i class="fas fa-spinner fa-spin"></i></span><span>Escaneando</span></div>`;
                     pageList.appendChild(div);
+                    const st = div.querySelector('.page-status');
+                    statusEls.push(st);
                 });
 
                 try {
@@ -445,12 +475,20 @@
                     renderTables(lastResults);
                     updateProgress(100,'Escaneo completado');
                     scanAnimation.style.display='none';
+                    // Marcar estados como completados
+                    statusEls.forEach(el=>{
+                        el.innerHTML = '<span class="status-icon status-done"><i class="fas fa-check-circle"></i></span><span>Completado</span>';
+                    });
                     resultsSection.style.display='block';
                     const now = new Date();
                     document.getElementById('report-date').textContent = now.toLocaleDateString('es-ES',{day:'numeric',month:'long',year:'numeric'});
                     document.getElementById('report-duration').textContent = (data.total_pages>=1? '≈ '+(data.total_pages*2)+'s':'N/A');
                 } catch(e){
                     scanAnimation.style.display='none';
+                    // Marcar estados como error
+                    statusEls.forEach(el=>{
+                        el.innerHTML = '<span class="status-icon status-error"><i class="fas fa-times-circle"></i></span><span>Error</span>';
+                    });
                     alert('Fallo en el escaneo: '+ e.message);
                 }
             });
@@ -469,12 +507,12 @@
                 resultsSection.style.display='block';
             });
 
-            downloadBtn.addEventListener('click', async () => {
+            async function handleDownload(button){
                 if(!lastResults){
                     alert('Primero realiza un escaneo.');
                     return;
                 }
-                downloadBtn.disabled=true; downloadBtn.innerHTML='<i class="fas fa-spinner fa-spin"></i> Generando...';
+                button.disabled=true; button.innerHTML='<i class="fas fa-spinner fa-spin"></i> Generando...';
                 try {
                     const resp = await fetch('/api/generate-report', {
                         method:'POST',
@@ -497,9 +535,15 @@
                 } catch(e){
                     alert('No se pudo generar el PDF: '+ e.message);
                 } finally {
-                    downloadBtn.disabled=false; downloadBtn.innerHTML='<i class="fas fa-download"></i> Descargar PDF';
+                    button.disabled=false; button.innerHTML='<i class="fas fa-download"></i> Descargar PDF';
                 }
-            });
+            }
+
+            downloadBtn.addEventListener('click', async () => handleDownload(downloadBtn));
+            if(downloadBtnReport){
+                downloadBtnReport.addEventListener('click', async () => handleDownload(downloadBtnReport));
+            }
+            
         });
     </script>
 </body>
