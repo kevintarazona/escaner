@@ -2,10 +2,12 @@ from flask import Flask, render_template, request, jsonify, send_file
 from flask_cors import CORS
 from scanner import SecurityScanner
 from crawler import WebCrawler, scan_multiple_urls
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from report_generator import generate_pdf_report
-import json
 import os
 from datetime import datetime
+import requests
+from werkzeug.exceptions import HTTPException
 
 app = Flask(__name__)
 CORS(app)  # Habilitar CORS para todas las rutas
@@ -26,8 +28,10 @@ def scan():
         scanner = SecurityScanner(url)
         results = scanner.scan()
         return jsonify(results)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except requests.RequestException as e:
+        return jsonify({'error': f'Request error: {str(e)}'}), 502
+    except HTTPException as e:
+        return jsonify({'error': e.description}), e.code
 
 @app.route('/api/multi-scan', methods=['POST'])
 def multi_scan():
@@ -44,21 +48,28 @@ def multi_scan():
     
     try:
         if deep_scan and crawl_links:
-            # Escaneo profundo con crawling para cada URL
-            for base_url in urls:
-                crawler = WebCrawler(base_url, max_pages)
-                page_results = crawler.crawl()
-                all_results.extend(page_results)
+            # Escaneo profundo con crawling para cada URL en paralelo
+            def do_crawl(u):
+                crawler = WebCrawler(u, max_pages)
+                return crawler.crawl()
+
+            with ThreadPoolExecutor(max_workers=min(4, max(1, len(urls)))) as ex:
+                futures = [ex.submit(do_crawl, u) for u in urls]
+                for fut in as_completed(futures):
+                    res = fut.result()
+                    all_results.extend(res)
         else:
-            # Escaneo de múltiples URLs sin crawling
+            # Escaneo de múltiples URLs sin crawling (paralelizado en crawler.scan_multiple_urls)
             all_results = scan_multiple_urls(urls)
         
         return jsonify({
             'total_pages': len(all_results),
             'results': all_results
         })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except requests.RequestException as e:
+        return jsonify({'error': f'Request error: {str(e)}'}), 502
+    except HTTPException as e:
+        return jsonify({'error': e.description}), e.code
 
 @app.route('/api/generate-report', methods=['POST'])
 def generate_report():
@@ -70,7 +81,7 @@ def generate_report():
     try:
         pdf_path = generate_pdf_report(scan_results)
         return send_file(pdf_path, as_attachment=True, download_name=f"security_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf")
-    except Exception as e:
+    except (OSError, ValueError, RuntimeError) as e:
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
