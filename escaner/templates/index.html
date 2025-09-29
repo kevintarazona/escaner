@@ -6,7 +6,7 @@
     <title>Web Security Scanner - Escaneo Multi-Página</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="container">
@@ -103,6 +103,25 @@
                             <p id="average-risk">Bajo</p>
                         </div>
                     </div>
+
+                    <div class="card" style="margin-top:15px;">
+                        <div class="card-header">
+                            <i class="fas fa-chart-pie"></i>
+                            <h2>Gráficos de Vulnerabilidades</h2>
+                        </div>
+                        <div class="card-body">
+                            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;">
+                                <div>
+                                    <h4>Por Severidad</h4>
+                                    <canvas id="chart-severity" height="220"></canvas>
+                                </div>
+                                <div>
+                                    <h4>Por Tipo</h4>
+                                    <canvas id="chart-types" height="220"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     
                     <div class="vulnerabilities">
                         <h3>Vulnerabilidades Detectadas</h3>
@@ -186,6 +205,8 @@
             const vulnDetails = document.getElementById('vuln-details');
             const pageList = document.getElementById('page-list');
             const downloadBtn = document.getElementById('download-pdf');
+            let chartSeverity = null;
+            let chartTypes = null;
 
             let lastResults = null; // Guardar resultados reales para reporte
 
@@ -223,18 +244,55 @@
 
             function buildSummary(results) {
                 let totalVulns = 0, high=0, med=0, low=0;
+                const typeCounts = {};
+                let totalTime = 0;
                 results.forEach(page => {
                     (page.vulnerabilities||[]).forEach(v => {
                         totalVulns++;
                         const s = (v.severity||'').toLowerCase();
                         if (s==='high') high++; else if (s==='medium') med++; else if (s==='low') low++;
+                        const t=(v.type||'Otros');
+                        typeCounts[t]=(typeCounts[t]||0)+1;
                     });
+                    const dur = (page.metrics && page.metrics.scan_duration) ? Number(page.metrics.scan_duration) : 0;
+                    totalTime += isNaN(dur)?0:dur;
                 });
                 document.getElementById('pages-scanned').textContent = results.length;
                 document.getElementById('total-vulnerabilities').textContent = totalVulns;
                 document.getElementById('report-pages').textContent = results.length;
                 document.getElementById('report-total-vulns').textContent = totalVulns;
                 document.getElementById('average-risk').textContent = high ? 'Alto' : (med ? 'Medio' : (low ? 'Bajo' : 'N/A'));
+                document.getElementById('total-time').textContent = `${Math.round(totalTime)}s`;
+
+                // Render charts
+                const ctxS = document.getElementById('chart-severity').getContext('2d');
+                const ctxT = document.getElementById('chart-types').getContext('2d');
+                if (chartSeverity) chartSeverity.destroy();
+                if (chartTypes) chartTypes.destroy();
+                chartSeverity = new Chart(ctxS, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Alta','Media','Baja'],
+                        datasets: [{
+                            data: [high, med, low],
+                            backgroundColor: ['#d7263d','#1e3a5c','#3a506b']
+                        }]
+                    },
+                    options: {responsive:true, plugins:{legend:{position:'bottom'}}}
+                });
+                const typeLabels = Object.keys(typeCounts);
+                chartTypes = new Chart(ctxT, {
+                    type: 'bar',
+                    data: {
+                        labels: typeLabels,
+                        datasets: [{
+                            label: 'Vulnerabilidades',
+                            data: typeLabels.map(k=>typeCounts[k]),
+                            backgroundColor: '#4a90e2'
+                        }]
+                    },
+                    options: {responsive:true, plugins:{legend:{display:false}}, scales:{x:{ticks:{autoSkip:false}}}}
+                });
             }
 
             function renderTables(results){
