@@ -18,10 +18,20 @@
         }
         
         body {
-            background: var(--light);
+            /* Fondo con imagen */
+            background: url('../static/fondo3.jpg') center center / cover no-repeat fixed;
             color: var(--text-main);
             min-height: 100vh;
             padding: 20px;
+        }
+        /* Capa sutil para mejorar legibilidad sobre la imagen */
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.103);
+            pointer-events: none;
+            z-index: -1;
         }
         
         .container {
@@ -161,7 +171,7 @@
         }
         
         .result-box {
-            background: var(--light);
+            background: var(--text-light);
             border-radius: 10px;
             padding: 20px;
             text-align: center;
@@ -303,15 +313,18 @@
         .status-message {
             text-align: center;
             font-size: 18px;
+  
             margin: 20px 0;
             color: var(--dark);
         }
         
         footer {
+            background-color: var(--primary);
             text-align: center;
             margin-top: 50px;
-            color: var(--secondary);
+            color: var(--text-light);
             text-shadow: none;
+            padding-left: 10px;
         }
         
         /* Nuevos estilos para múltiples páginas */
@@ -363,7 +376,7 @@
         }
         
         .add-url:hover {
-            background: #27ae60;
+            background: #2749ae;
         }
         
         .scan-options {
