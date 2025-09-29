@@ -101,6 +101,12 @@ def generate_pdf_report(scan_results):
     # Detalle por página
     for idx, page in enumerate(scan_results.get('results', []), start=1):
         pdf.section_title(f'Página {idx}: {page.get("url", "(sin URL)")}')
+        metrics = page.get('metrics', {})
+        if metrics:
+            risk = metrics.get('risk_level', 'N/A')
+            duration = metrics.get('scan_duration', 'N/A')
+            pdf.add_key_value('Riesgo de la página', risk)
+            pdf.add_key_value('Duración del escaneo (s)', duration)
         vulns = page.get('vulnerabilities', [])
         if not vulns:
             pdf.set_font('Helvetica', 'I', 9)
