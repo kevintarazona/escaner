@@ -131,6 +131,7 @@
                                     <th>Página</th>
                                     <th>Vulnerabilidad</th>
                                     <th>Riesgo</th>
+                                    <th>Payload</th>
                                     <th>Detalles</th>
                                 </tr>
                             </thead>
@@ -138,6 +139,7 @@
                                 <!-- Vulnerabilities will be added here dynamically -->
                             </tbody>
                         </table>
+                        <div class="pagination" id="pagination"></div>
                     </div>
                     
                     <div class="actions">
@@ -209,6 +211,9 @@
             let chartTypes = null;
 
             let lastResults = null; // Guardar resultados reales para reporte
+            let tableRows = [];     // Datos de vulnerabilidades para la tabla
+            let pageSize = 10;      // Tamaño de página por defecto
+            let currentPage = 1;    // Página actual de la tabla
 
             // Añadir nuevo campo URL
             addUrlBtn.addEventListener('click', () => {
@@ -296,39 +301,101 @@
             }
 
             function renderTables(results){
-                vulnTableBody.innerHTML='';
+                // Construir datos para tabla con paginación
+                tableRows = [];
                 vulnDetails.innerHTML='';
                 results.forEach(page => {
                     const pageUrl = page.url || '(sin URL)';
                     const vulns = page.vulnerabilities||[];
-                    // Tabla resumen
+
+                    // Acumular filas para la tabla
                     vulns.forEach(v => {
-                        const tr=document.createElement('tr');
-                        const sev=(v.severity||'').toLowerCase();
-                        tr.innerHTML=`<td>${pageUrl}</td><td>${v.type||'N/A'}</td><td><span class="risk-${sev}">${sev.toUpperCase()}</span></td><td>${v.description||''}</td>`;
-                        vulnTableBody.appendChild(tr);
+                        tableRows.push({
+                            pageUrl,
+                            type: v.type||'N/A',
+                            severity: (v.severity||'').toLowerCase(),
+                            payload: v.payload||'',
+                            description: v.description||''
+                        });
                     });
-                    // Detalle
+
+                    // Sección de detalle por página con colapsable
                     const section=document.createElement('div');
                     section.innerHTML=`<h4>Página: ${pageUrl}</h4>`;
                     vulnDetails.appendChild(section);
+
                     if(!vulns.length){
                         const p=document.createElement('p');
                         p.textContent='Sin vulnerabilidades en esta página.';
                         vulnDetails.appendChild(p);
                     } else {
+                        const detailsEl = document.createElement('details');
+                        const sevBadge = (lvl)=>`<span class="risk-${(lvl||'').toLowerCase()}">${(lvl||'').toUpperCase()}</span>`;
+                        detailsEl.innerHTML = `<summary>Vulnerabilidades (${vulns.length})</summary>`;
                         vulns.forEach(v => {
                             const d=document.createElement('div');
                             d.className='vuln-detail';
                             const sev=(v.severity||'').toLowerCase();
-                            d.innerHTML=`<h4>${v.type||'Vulnerabilidad'} - <span class="risk-${sev}">${sev.toUpperCase()}</span></h4>
+                            d.innerHTML=`<h4>${v.type||'Vulnerabilidad'} - ${sevBadge(v.severity)}</h4>
                                 <p><strong>Descripción:</strong> ${v.description||''}</p>
                                 ${v.details?`<p><strong>Detalles:</strong> ${v.details}</p>`:''}
                                 ${v.payload?`<p><strong>Payload:</strong> ${v.payload}</p>`:''}`;
-                            vulnDetails.appendChild(d);
+                            detailsEl.appendChild(d);
                         });
+                        vulnDetails.appendChild(detailsEl);
                     }
                 });
+
+                // Renderizar primera página de la tabla
+                currentPage = 1;
+                renderTablePage(currentPage);
+                renderPagination();
+            }
+
+            function renderTablePage(page){
+                vulnTableBody.innerHTML='';
+                const start = (page-1)*pageSize;
+                const end = Math.min(start+pageSize, tableRows.length);
+                for(let i=start; i<end; i++){
+                    const r = tableRows[i];
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td>${r.pageUrl}</td>
+                                    <td>${r.type}</td>
+                                    <td><span class="risk-${r.severity}">${r.severity.toUpperCase()}</span></td>
+                                    <td>${r.payload?r.payload:''}</td>
+                                    <td>${r.description}</td>`;
+                    vulnTableBody.appendChild(tr);
+                }
+            }
+
+            function renderPagination(){
+                const container = document.getElementById('pagination');
+                container.innerHTML='';
+                const total = tableRows.length;
+                const totalPages = Math.max(1, Math.ceil(total / pageSize));
+                if(totalPages <= 1){
+                    return; // no mostrar controles si no hace falta
+                }
+                const btn = (label, disabled, onClick)=>{
+                    const b = document.createElement('button');
+                    b.textContent = label;
+                    b.className = 'page-btn';
+                    b.disabled = !!disabled;
+                    b.addEventListener('click', onClick);
+                    return b;
+                };
+                container.appendChild(btn('« Anterior', currentPage===1, ()=>{ currentPage--; renderTablePage(currentPage); renderPagination(); }));
+                // páginas numeradas (máx 7 visibles)
+                const totalToShow = 7;
+                let start = Math.max(1, currentPage - Math.floor(totalToShow/2));
+                let end = Math.min(totalPages, start + totalToShow - 1);
+                if(end - start + 1 < totalToShow){ start = Math.max(1, end - totalToShow + 1); }
+                for(let p=start; p<=end; p++){
+                    const b = btn(String(p), p===currentPage, ()=>{ currentPage=p; renderTablePage(currentPage); renderPagination(); });
+                    if(p===currentPage) b.classList.add('active');
+                    container.appendChild(b);
+                }
+                container.appendChild(btn('Siguiente »', currentPage===totalPages, ()=>{ currentPage++; renderTablePage(currentPage); renderPagination(); }));
             }
 
             scanButton.addEventListener('click', async () => {
